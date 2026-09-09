@@ -1,49 +1,30 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
+from .services.exchange_service import fetch_live_prices, fetch_stellar_account
+from .services.ai_service import generate_portfolio_insight
 
-app = FastAPI(
-    title="Portfo IA API",
-    description="Backend oficial para análisis de portafolios multi-plataforma con IA y Stellar.",
-    version="1.0.0"
-)
+app = FastAPI(title="PortfoIA Quant API", version="1.1")
 
-# Configuración de CORS para que el Frontend (React) se comunique sin problemas
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción se restringe a tu dominio de Vercel
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class Asset(BaseModel):
-    symbol: str
-    amount: float
-    platform: str # ej. "Binance", "GBM", "Stellar"
+@app.get("/api/assets")
+async def get_assets():
+    assets = await fetch_live_prices()
+    return {"status": "success", "data": assets}
 
-class PortfolioRequest(BaseModel):
-    user_id: str
-    assets: List[Asset]
+@app.get("/api/ai-insights")
+async def get_ai_insights():
+    assets = await fetch_live_prices()
+    insights = await generate_portfolio_insight(assets)
+    return {"status": "success", "data": insights}
 
-@app.get("/")
-def read_root():
-    return {"status": "online", "message": "Bienvenido al núcleo de Portfo IA 🚀"}
-
-@app.post("/api/analyze")
-def analyze_portfolio(portfolio: PortfolioRequest):
-    # Aquí conectaremos próximamente el servicio de Groq
-    try:
-        # Simulación de respuesta estructurada de la IA
-        return {
-            "trust_score": 85,
-            "risk_level": "Moderado",
-            "summary": "Tu portafolio muestra una buena distribución, pero alta exposición a criptomonedas volátiles frente a activos tradicionales.",
-            "recommendations": [
-                "Considera rebalancear un 10% hacia activos estables o FIBRAs.",
-                "Monitorea la volatilidad de tus activos principales en Binance."
-            ]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/stellar")
+async def get_stellar_account():
+    account = await fetch_stellar_account()
+    return {"status": "success", "data": account}
