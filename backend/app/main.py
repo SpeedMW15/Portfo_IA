@@ -5,9 +5,10 @@ from .services.ai_service import generate_portfolio_insight
 
 app = FastAPI(title="PortfoIA Quant API", version="1.1")
 
+# Habilitar CORS para Vercel y entorno local
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174"],
+    allow_origins=["*"],  # Permite cualquier origen en producción
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
