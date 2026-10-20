@@ -10,14 +10,14 @@
       "framework": "vite"
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "backend/api/$1"
+      "source": "/api/(.*)",
+      "destination": "http://backend/api/$1"
     },
     {
-      "src": "/(.*)",
-      "dest": "frontend/$1"
+      "source": "/(.*)",
+      "destination": "http://frontend/$1"
     }
   ]
 }
