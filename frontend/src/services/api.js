@@ -12,11 +12,46 @@ export async function fetchPortfolioAssets() {
     throw new Error("Estructura de datos no válida");
   } catch (error) {
     console.warn("Usando datos Mock para Assets:", error);
-    // Incluye propiedades compatibles con .toLocaleString()
     return [
-      { id: 1, name: "Stellar Lumens", symbol: "XLM", amount: 1500, valueUsd: 180.50, value: 180.50, price: 0.12 },
-      { id: 2, name: "Bitcoin", symbol: "BTC", amount: 0.005, valueUsd: 320.10, value: 320.10, price: 64020.00 },
-      { id: 3, name: "Ethereum", symbol: "ETH", amount: 0.08, valueUsd: 210.00, value: 210.00, price: 2625.00 }
+      {
+        id: 1,
+        symbol: "XLM",
+        name: "Stellar Lumens",
+        platform: "Stellar Network",
+        category: "DeFi / L1",
+        amount: "1,500.00",
+        price: "$0.12",
+        value: 180.50,
+        trend: "up",
+        change: "+5.4%",
+        allocation: 25
+      },
+      {
+        id: 2,
+        symbol: "BTC",
+        name: "Bitcoin",
+        platform: "Binance",
+        category: "Store of Value",
+        amount: "0.005",
+        price: "$64,020.00",
+        value: 320.10,
+        trend: "up",
+        change: "+2.1%",
+        allocation: 45
+      },
+      {
+        id: 3,
+        symbol: "ETH",
+        name: "Ethereum",
+        platform: "Uniswap V3",
+        category: "Smart Contracts",
+        amount: "0.08",
+        price: "$2,625.00",
+        value: 210.00,
+        trend: "down",
+        change: "-0.8%",
+        allocation: 30
+      }
     ];
   }
 }
@@ -33,10 +68,29 @@ export async function fetchAIInsights() {
   } catch (error) {
     console.warn("Usando datos Mock para IA Insights:", error);
     return {
-      summary: "Análisis predictivo de la cartera vía Groq AI (Llama 3.3 70B)",
-      recommendation: "MANTENER / REBALANCEAR",
-      riskScore: "Medio-Bajo",
-      details: "Diversificación óptima detectada en la Testnet de Stellar. El rendimiento proyectado a 30 días presenta una tendencia positiva del +4.2%."
+      health_score: 88,
+      recommendation: "Mantener posiciones actuales y considerar rebalanceo hacia XLM tras confirmación de ruptura en la Testnet.",
+      diversification_tip: "Tu portafolio presenta una alta concentración en Store of Value. Incrementar participación en L1/DeFi mejorará el rendimiento ajustado por riesgo.",
+      actions: [
+        {
+          symbol: "XLM",
+          action: "buy",
+          confidence: 85,
+          reason: "Patrón alcista detectado en la Testnet de Soroban con volumen incremental."
+        },
+        {
+          symbol: "BTC",
+          action: "hold",
+          confidence: 90,
+          reason: "Consolidación saludable sobre la media móvil de 50 días."
+        },
+        {
+          symbol: "ETH",
+          action: "buy",
+          confidence: 78,
+          reason: "Soporte clave alcanzado con divergencia positiva en RSI."
+        }
+      ]
     };
   }
 }
@@ -53,12 +107,13 @@ export async function fetchStellarAccount() {
   } catch (error) {
     console.warn("Usando datos Mock para Stellar:", error);
     return {
-      network: "Testnet",
-      accountPublicKey: "GCX2K...SOROBAN_TESTNET_ACCOUNT",
-      contractId: "C1234...SMART_CONTRACT_SOROBAN",
-      balanceXLM: 1500.00,
-      balance: 1500.00,
-      status: "Connected (Mock Mode)"
+      configured: true,
+      network: "testnet",
+      public_key: "GCX2K3M4N5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0SOROBAN",
+      xlm_balance: 1500.00,
+      other_assets: [
+        { asset_code: "USDC", balance: "250.00" }
+      ]
     };
   }
 }
