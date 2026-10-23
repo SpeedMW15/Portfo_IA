@@ -23,7 +23,7 @@ async def fetch_live_prices():
         except Exception as e:
             print(f"Aviso: error obteniendo balance dinámico de Stellar: {e}")
 
-    # Valores de reserva iniciales (solo si falla la conexión a internet)
+    # Valores de reserva iniciales
     btc_price_mxn, btc_change = 1184000.0, "+2.10%"
     xlm_price_mxn, xlm_change = 3.29, "+0.52%"
     fmty_price_mxn, fmty_change = 23.0, "+1.18%"
@@ -33,13 +33,10 @@ async def fetch_live_prices():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # --- Criptomonedas: CoinGecko API (Tiempo Real) ---
-    try:
-        url = (
-            "https://api.coingecko.com/api/v3/simple/price"
-            "?ids=bitcoin,stellar&vs_currencies=mxn&include_24hr_change=true"
-        )
-        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
+        # 1. Criptomonedas: CoinGecko API
+        try:
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,stellar&vs_currencies=mxn&include_24hr_change=true"
             response = await client.get(url)
             if response.status_code == 200:
                 data = response.json()
@@ -52,14 +49,12 @@ async def fetch_live_prices():
                     xlm_price_mxn = float(data["stellar"].get("mxn", xlm_price_mxn))
                     chg_xlm = float(data["stellar"].get("mxn_24h_change", 0.0))
                     xlm_change = f"{'+' if chg_xlm >= 0 else ''}{chg_xlm:.2f}%"
-    except Exception as e:
-        print(f"Error consultando cripto en CoinGecko: {e}")
+        except Exception as e:
+            print(f"Error consultando cripto en CoinGecko: {e}")
 
-    # --- Acciones: Stooq API + Tipo de Cambio USD/MXN en Vivo ---
-    try:
-        usd_mxn_rate = 18.5  # Tipo de cambio de referencia
-        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
-            # Petición para AAPL
+        # 2. Acciones: Stooq API
+        try:
+            usd_mxn_rate = 18.5
             stock_resp = await client.get("https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv")
             if stock_resp.status_code == 200:
                 lines = stock_resp.text.strip().splitlines()
@@ -71,8 +66,8 @@ async def fetch_live_prices():
                         aapl_price_mxn = close_price * usd_mxn_rate
                         chg_pct = ((close_price - open_price) / open_price) * 100 if open_price > 0 else 0
                         aapl_change = f"{'+' if chg_pct >= 0 else ''}{chg_pct:.2f}%"
-    except Exception as e:
-        print(f"Error consultando acciones en Stooq: {e}")
+        except Exception as e:
+            print(f"Error consultando acciones en Stooq: {e}")
 
     # Cálculos dinámicos reales
     btc_value = round(btc_price_mxn * btc_amount, 2)
@@ -195,13 +190,11 @@ async def fetch_stellar_account():
 async def fetch_market_opportunities():
     """
     Obtiene en tiempo real los precios de mercado para Solana, XLM, NVIDIA y VOO en MXN.
-    Genera la gráfica de tendencia en base al precio real actual.
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # Precios dinámicos por defecto
     sol_price, sol_chg = 1945.0, "+6.40%"
     xlm_price, xlm_chg = 3.29, "+0.52%"
     nvda_price, nvda_chg = 4134.0, "+3.15%"
@@ -210,7 +203,7 @@ async def fetch_market_opportunities():
     usd_mxn_rate = 18.50
 
     async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
-        # 1. Consulta Cripto (Solana y Stellar) a CoinGecko
+        # 1. Consulta Cripto (Solana y Stellar)
         try:
             cg_resp = await client.get(
                 "https://api.coingecko.com/api/v3/simple/price?ids=solana,stellar&vs_currencies=mxn&include_24hr_change=true"
@@ -229,9 +222,8 @@ async def fetch_market_opportunities():
         except Exception as e:
             print(f"Error consultando CoinGecko en oportunidades: {e}")
 
-        # 2. Consulta Acciones (NVIDIA y VOO ETF) a Stooq
+        # 2. Consulta Acciones (NVIDIA)
         try:
-            # NVIDIA (NVDA)
             nvda_resp = await client.get("https://stooq.com/q/l/?s=nvda.us&f=sd2t2ohlcv&h&e=csv")
             if nvda_resp.status_code == 200:
                 lines = nvda_resp.text.strip().splitlines()
@@ -243,8 +235,11 @@ async def fetch_market_opportunities():
                         nvda_price = round(close_price * usd_mxn_rate, 2)
                         chg_pct = ((close_price - open_price) / open_price) * 100 if open_price > 0 else 0
                         nvda_chg = f"{'+' if chg_pct >= 0 else ''}{chg_pct:.2f}%"
+        except Exception as e:
+            print(f"Error consultando NVDA en Stooq: {e}")
 
-            # VOO ETF
+        # 3. Consulta ETFs (VOO)
+        try:
             voo_resp = await client.get("https://stooq.com/q/l/?s=voo.us&f=sd2t2ohlcv&h&e=csv")
             if voo_resp.status_code == 200:
                 lines = voo_resp.text.strip().splitlines()
@@ -257,9 +252,8 @@ async def fetch_market_opportunities():
                         chg_pct = ((close_price - open_price) / open_price) * 100 if open_price > 0 else 0
                         voo_chg = f"{'+' if chg_pct >= 0 else ''}{chg_pct:.2f}%"
         except Exception as e:
-            print(f"Error consultando Stooq en oportunidades: {e}")
+            print(f"Error consultando VOO en Stooq: {e}")
 
-    # Función auxiliar para construir la curva del gráfico ajustada al precio real actual
     def make_history(current_price):
         return [
             {"time": "00:00", "price": round(current_price * 0.96, 2)},
