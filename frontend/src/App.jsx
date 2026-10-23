@@ -130,6 +130,7 @@ export default function PortfolioDashboard() {
   }, []);
 
   // DATA LOADING
+  // Carga inicial y periódica de datos (desvinculada de selectedAsset para evitar re-renders masivos)
   const loadData = useCallback(async (isInitial) => {
     try {
       if (isInitial) setLoading(true);
@@ -143,16 +144,16 @@ export default function PortfolioDashboard() {
       setAssets(liveAssets);
       setStellar(liveStellar);
       setOpportunities(liveOpps);
-      if (liveOpps.length > 0 && !selectedAsset) {
-        setSelectedAsset(liveOpps[0]);
-      }
+
+      // Asigna el activo por defecto solo la primera vez que carga
+      setSelectedAsset((prev) => prev || (liveOpps.length > 0 ? liveOpps[0] : null));
       setLastUpdated(Date.now());
     } catch (error) {
       console.error('Error al cargar el portafolio:', error);
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, [selectedAsset]);
+  }, []); // <-- Array de dependencias vacío para no re-ejecutar en cambios de selección
 
   const handleAnalyzeWithAI = async () => {
     if (insightsLoading) return;

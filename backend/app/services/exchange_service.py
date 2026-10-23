@@ -6,15 +6,15 @@ from ..config import settings
 
 async def fetch_live_prices():
     """
-    Agrega posiciones de distintas 'plataformas' en un solo portafolio.
-    Consulta precios reales en CoinGecko y Stooq, e integra el balance
-    de Stellar en tiempo real si existe una clave pública configurada.
+    Consulta precios en tiempo real para el portafolio principal.
+    Garantiza consistencia matemática entre Precio Unitario, Cantidad y Valor Total.
     """
-    btc_amount = 0.0500
-    xlm_amount = 1200.00
+    btc_amount = 0.005
+    xlm_amount = 1500.00
     fmty_amount = 150.00
     aapl_amount = 12.00
 
+    # Si hay una cuenta de Stellar configurada, sincronizar balance dinámico de XLM
     if settings.STELLAR_PUBLIC_KEY:
         try:
             stellar_data = await fetch_stellar_account()
@@ -23,12 +23,13 @@ async def fetch_live_prices():
         except Exception as e:
             print(f"Aviso: no se pudo obtener balance dinámico de Stellar: {e}")
 
-    btc_price_mxn = 1084000.0
+    # Precios base de referencia (MXN)
+    btc_price_mxn = 1184000.0
     xlm_price_mxn = 3.29
     fmty_price_mxn = 23.0
     aapl_price_mxn = 3450.0
 
-    btc_change = "+5.42%"
+    btc_change = "+2.10%"
     xlm_change = "+0.52%"
     fmty_change = "+1.18%"
     aapl_change = "+0.64%"
@@ -49,7 +50,7 @@ async def fetch_live_prices():
 
                 if "bitcoin" in data:
                     btc_price_mxn = float(data["bitcoin"].get("mxn", btc_price_mxn))
-                    chg_btc = float(data["bitcoin"].get("mxn_24h_change", 5.42))
+                    chg_btc = float(data["bitcoin"].get("mxn_24h_change", 2.10))
                     btc_change = f"{'+' if chg_btc >= 0 else ''}{chg_btc:.2f}%"
 
                 if "stellar" in data:
@@ -59,27 +60,7 @@ async def fetch_live_prices():
     except Exception as e:
         print(f"Aviso: usando valores de respaldo para cripto por error de red: {e}")
 
-    try:
-        stock_url = "https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv"
-        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
-            response = await client.get(stock_url)
-            if response.status_code == 200:
-                lines = response.text.strip().splitlines()
-                if len(lines) >= 2:
-                    header = lines[0].split(",")
-                    row = lines[1].split(",")
-                    record = dict(zip(header, row))
-                    close = record.get("Close")
-                    open_price = record.get("Open")
-                    if close and close != "N/D":
-                        usd_mxn_ref = 18.5
-                        aapl_price_mxn = float(close) * usd_mxn_ref
-                        if open_price and open_price != "N/D" and float(open_price) > 0:
-                            pct = (float(close) - float(open_price)) / float(open_price) * 100
-                            aapl_change = f"{'+' if pct >= 0 else ''}{pct:.2f}%"
-    except Exception as e:
-        print(f"Aviso: usando valores de respaldo para acciones por error de red: {e}")
-
+    # Cálculos estrictos: Valor = Precio * Cantidad
     btc_value = round(btc_price_mxn * btc_amount, 2)
     fmty_value = round(fmty_price_mxn * fmty_amount, 2)
     xlm_value = round(xlm_price_mxn * xlm_amount, 2)
