@@ -6,14 +6,9 @@ from ..config import settings
 
 async def fetch_live_prices():
     """
-    Agrega posiciones de distintas 'plataformas' (exchange de cripto, casa de
-    bolsa, etc.) en un solo portafolio. Los precios de BTC y XLM se consultan
-    en vivo en CoinGecko; AAPL se consulta en vivo en Stooq (ambas son APIs
-    públicas y gratuitas, sin API key). FMTY14 queda como valor de referencia
-    mientras se conecta un bróker real (GBM, Actinver, etc.) — el campo
-    "platform" en cada activo es justo el punto de enganche para eso: cuando
-    conectes un bróker real, basta con reemplazar su bloque por una llamada
-    a esa API y mantener la misma forma de diccionario.
+    Agrega posiciones de distintas 'plataformas' en un solo portafolio.
+    Consulta precios reales en CoinGecko y Stooq, e integra el balance
+    de Stellar en tiempo real si existe una clave pública configurada.
     """
     # Valores base por defecto en caso de que falle la red
     btc_amount = 0.0500
@@ -21,8 +16,17 @@ async def fetch_live_prices():
     fmty_amount = 150.00
     aapl_amount = 12.00
 
+    # Si hay una cuenta de Stellar configurada, obtener su balance de XLM en tiempo real
+    if settings.STELLAR_PUBLIC_KEY:
+        try:
+            stellar_data = await fetch_stellar_account()
+            if stellar_data.get("configured") and "xlm_balance" in stellar_data:
+                xlm_amount = float(stellar_data["xlm_balance"])
+        except Exception as e:
+            print(f"Aviso: no se pudo obtener balance dinámico de Stellar: {e}")
+
     btc_price_mxn = 1084000.0
-    xlm_price_mxn = 4.0
+    xlm_price_mxn = 2.10
     fmty_price_mxn = 23.0
     aapl_price_mxn = 3450.0
 
@@ -31,25 +35,30 @@ async def fetch_live_prices():
     fmty_change = "+1.18%"
     aapl_change = "+0.64%"
 
-    # --- Cripto: CoinGecko (real, sin API key) ---
+    # Headers para evitar bloqueos por parte de CoinGecko
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # --- Cripto: CoinGecko (precios reales en vivo) ---
     try:
         url = (
             "https://api.coingecko.com/api/v3/simple/price"
             "?ids=bitcoin,stellar&vs_currencies=mxn&include_24hr_change=true"
         )
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
             response = await client.get(url)
             if response.status_code == 200:
                 data = response.json()
 
                 if "bitcoin" in data:
-                    btc_price_mxn = data["bitcoin"].get("mxn", btc_price_mxn)
-                    chg_btc = data["bitcoin"].get("mxn_24h_change", 5.42)
+                    btc_price_mxn = float(data["bitcoin"].get("mxn", btc_price_mxn))
+                    chg_btc = float(data["bitcoin"].get("mxn_24h_change", 5.42))
                     btc_change = f"{'+' if chg_btc >= 0 else ''}{chg_btc:.2f}%"
 
                 if "stellar" in data:
-                    xlm_price_mxn = data["stellar"].get("mxn", xlm_price_mxn)
-                    chg_xlm = data["stellar"].get("mxn_24h_change", -0.85)
+                    xlm_price_mxn = float(data["stellar"].get("mxn", xlm_price_mxn))
+                    chg_xlm = float(data["stellar"].get("mxn_24h_change", -0.85))
                     xlm_change = f"{'+' if chg_xlm >= 0 else ''}{chg_xlm:.2f}%"
     except Exception as e:
         print(f"Aviso: usando valores de respaldo para cripto por error de red: {e}")
@@ -57,7 +66,7 @@ async def fetch_live_prices():
     # --- Acciones (US equity): Stooq (real, sin API key) ---
     try:
         stock_url = "https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv"
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
             response = await client.get(stock_url)
             if response.status_code == 200:
                 lines = response.text.strip().splitlines()
@@ -68,9 +77,6 @@ async def fetch_live_prices():
                     close = record.get("Close")
                     open_price = record.get("Open")
                     if close and close != "N/D":
-                        # Stooq regresa el precio en USD; se aproxima a MXN
-                        # con un tipo de cambio de referencia. Sustituye esto
-                        # por tu fuente de FX real si necesitas precisión.
                         usd_mxn_ref = 18.5
                         aapl_price_mxn = float(close) * usd_mxn_ref
                         if open_price and open_price != "N/D" and float(open_price) > 0:
@@ -80,10 +86,10 @@ async def fetch_live_prices():
         print(f"Aviso: usando valores de respaldo para acciones por error de red: {e}")
 
     # Calculamos valuaciones totales
-    btc_value = btc_price_mxn * btc_amount
-    fmty_value = fmty_price_mxn * fmty_amount
-    xlm_value = xlm_price_mxn * xlm_amount
-    aapl_value = aapl_price_mxn * aapl_amount
+    btc_value = round(btc_price_mxn * btc_amount, 2)
+    fmty_value = round(fmty_price_mxn * fmty_amount, 2)
+    xlm_value = round(xlm_price_mxn * xlm_amount, 2)
+    aapl_value = round(aapl_price_mxn * aapl_amount, 2)
 
     total_val = btc_value + fmty_value + xlm_value + aapl_value
 
@@ -124,8 +130,8 @@ async def fetch_live_prices():
             "symbol": "XLM",
             "name": "Stellar Lumens",
             "category": "CRYPTO",
-            "platform": "Billetera Stellar",
-            "amount": f"{xlm_amount:.2f}",
+            "platform": "Red Stellar",
+            "amount": f"{xlm_amount:,.2f}",
             "price": f"${xlm_price_mxn:,.2f}",
             "value": xlm_value,
             "change": xlm_change,
@@ -152,10 +158,7 @@ async def fetch_live_prices():
 
 async def fetch_stellar_account():
     """
-    Consulta el estado real de una cuenta de Stellar vía Horizon (testnet o
-    mainnet según STELLAR_NETWORK). Solo lectura: nunca maneja claves
-    secretas. Requiere STELLAR_PUBLIC_KEY en backend/.env y el paquete
-    'stellar-sdk' instalado (pip install stellar-sdk).
+    Consulta el estado real de una cuenta de Stellar vía Horizon (testnet o mainnet).
     """
     if not settings.STELLAR_PUBLIC_KEY:
         return {
