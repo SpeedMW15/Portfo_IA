@@ -10,13 +10,11 @@ async def fetch_live_prices():
     Consulta precios reales en CoinGecko y Stooq, e integra el balance
     de Stellar en tiempo real si existe una clave pública configurada.
     """
-    # Valores base por defecto en caso de que falle la red
     btc_amount = 0.0500
     xlm_amount = 1200.00
     fmty_amount = 150.00
     aapl_amount = 12.00
 
-    # Si hay una cuenta de Stellar configurada, obtener su balance de XLM en tiempo real
     if settings.STELLAR_PUBLIC_KEY:
         try:
             stellar_data = await fetch_stellar_account()
@@ -26,21 +24,19 @@ async def fetch_live_prices():
             print(f"Aviso: no se pudo obtener balance dinámico de Stellar: {e}")
 
     btc_price_mxn = 1084000.0
-    xlm_price_mxn = 2.10
+    xlm_price_mxn = 3.29
     fmty_price_mxn = 23.0
     aapl_price_mxn = 3450.0
 
     btc_change = "+5.42%"
-    xlm_change = "-0.85%"
+    xlm_change = "+0.52%"
     fmty_change = "+1.18%"
     aapl_change = "+0.64%"
 
-    # Headers para evitar bloqueos por parte de CoinGecko
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # --- Cripto: CoinGecko (precios reales en vivo) ---
     try:
         url = (
             "https://api.coingecko.com/api/v3/simple/price"
@@ -58,12 +54,11 @@ async def fetch_live_prices():
 
                 if "stellar" in data:
                     xlm_price_mxn = float(data["stellar"].get("mxn", xlm_price_mxn))
-                    chg_xlm = float(data["stellar"].get("mxn_24h_change", -0.85))
+                    chg_xlm = float(data["stellar"].get("mxn_24h_change", 0.52))
                     xlm_change = f"{'+' if chg_xlm >= 0 else ''}{chg_xlm:.2f}%"
     except Exception as e:
         print(f"Aviso: usando valores de respaldo para cripto por error de red: {e}")
 
-    # --- Acciones (US equity): Stooq (real, sin API key) ---
     try:
         stock_url = "https://stooq.com/q/l/?s=aapl.us&f=sd2t2ohlcv&h&e=csv"
         async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
@@ -85,7 +80,6 @@ async def fetch_live_prices():
     except Exception as e:
         print(f"Aviso: usando valores de respaldo para acciones por error de red: {e}")
 
-    # Calculamos valuaciones totales
     btc_value = round(btc_price_mxn * btc_amount, 2)
     fmty_value = round(fmty_price_mxn * fmty_amount, 2)
     xlm_value = round(xlm_price_mxn * xlm_amount, 2)
@@ -104,7 +98,7 @@ async def fetch_live_prices():
             "category": "CRYPTO",
             "platform": "Binance",
             "amount": f"{btc_amount:.4f}",
-            "price": f"${btc_price_mxn:,.2f}",
+            "price": f"${btc_price_mxn:,.2f} MXN",
             "value": btc_value,
             "change": btc_change,
             "trend": "up" if not btc_change.startswith("-") else "down",
@@ -118,7 +112,7 @@ async def fetch_live_prices():
             "category": "FIBRA",
             "platform": "GBM",
             "amount": f"{fmty_amount:.2f}",
-            "price": f"${fmty_price_mxn:,.2f}",
+            "price": f"${fmty_price_mxn:,.2f} MXN",
             "value": fmty_value,
             "change": fmty_change,
             "trend": "up",
@@ -132,7 +126,7 @@ async def fetch_live_prices():
             "category": "CRYPTO",
             "platform": "Red Stellar",
             "amount": f"{xlm_amount:,.2f}",
-            "price": f"${xlm_price_mxn:,.2f}",
+            "price": f"${xlm_price_mxn:,.2f} MXN",
             "value": xlm_value,
             "change": xlm_change,
             "trend": "up" if not xlm_change.startswith("-") else "down",
@@ -146,7 +140,7 @@ async def fetch_live_prices():
             "category": "ACCIÓN",
             "platform": "Interactive Brokers",
             "amount": f"{aapl_amount:.2f}",
-            "price": f"${aapl_price_mxn:,.2f}",
+            "price": f"${aapl_price_mxn:,.2f} MXN",
             "value": aapl_value,
             "change": aapl_change,
             "trend": "up" if not aapl_change.startswith("-") else "down",
@@ -157,9 +151,6 @@ async def fetch_live_prices():
 
 
 async def fetch_stellar_account():
-    """
-    Consulta el estado real de una cuenta de Stellar vía Horizon (testnet o mainnet).
-    """
     if not settings.STELLAR_PUBLIC_KEY:
         return {
             "configured": False,
@@ -198,15 +189,125 @@ async def fetch_stellar_account():
             "other_assets": other_assets,
             "sequence": account.get("sequence"),
         }
-    except ImportError:
-        return {
-            "configured": False,
-            "network": settings.STELLAR_NETWORK,
-            "message": "Instala 'stellar-sdk' (pip install stellar-sdk) para activar la conexión.",
-        }
     except Exception as e:
         return {
             "configured": False,
             "network": settings.STELLAR_NETWORK,
             "message": f"No se pudo conectar con Horizon: {e}",
         }
+
+
+async def fetch_market_opportunities():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    opportunities = [
+        {
+            "id": "solana",
+            "symbol": "SOL",
+            "name": "Solana",
+            "category": "Cripto / L1",
+            "price_mxn": 3250.0,
+            "change_24h": "+6.4%",
+            "trend": "up",
+            "volume_24h": "$4.2B MXN",
+            "market_cap": "$1.4T MXN",
+            "high_24h": 3320.0,
+            "low_24h": 3010.0,
+            "ai_score": "Alcista (88%)",
+            "history": [
+                {"time": "00:00", "price": 3020},
+                {"time": "04:00", "price": 3080},
+                {"time": "08:00", "price": 3150},
+                {"time": "12:00", "price": 3210},
+                {"time": "16:00", "price": 3190},
+                {"time": "20:00", "price": 3250},
+            ],
+        },
+        {
+            "id": "stellar",
+            "symbol": "XLM",
+            "name": "Stellar Lumens",
+            "category": "DeFi / Soroban",
+            "price_mxn": 3.29,
+            "change_24h": "+0.52%",
+            "trend": "up",
+            "volume_24h": "$180M MXN",
+            "market_cap": "$98B MXN",
+            "high_24h": 3.38,
+            "low_24h": 3.22,
+            "ai_score": "Fuerte Compra (92%)",
+            "history": [
+                {"time": "00:00", "price": 3.24},
+                {"time": "04:00", "price": 3.27},
+                {"time": "08:00", "price": 3.31},
+                {"time": "12:00", "price": 3.35},
+                {"time": "16:00", "price": 3.28},
+                {"time": "20:00", "price": 3.29},
+            ],
+        },
+        {
+            "id": "nvidia",
+            "symbol": "NVDA",
+            "name": "NVIDIA Corp.",
+            "category": "Acciones / Tech",
+            "price_mxn": 2480.0,
+            "change_24h": "+3.15%",
+            "trend": "up",
+            "volume_24h": "$12.5B MXN",
+            "market_cap": "$3.2T USD",
+            "high_24h": 2510.0,
+            "low_24h": 2410.0,
+            "ai_score": "Alcista (85%)",
+            "history": [
+                {"time": "00:00", "price": 2410},
+                {"time": "04:00", "price": 2430},
+                {"time": "08:00", "price": 2465},
+                {"time": "12:00", "price": 2490},
+                {"time": "16:00", "price": 2470},
+                {"time": "20:00", "price": 2480},
+            ],
+        },
+        {
+            "id": "voo",
+            "symbol": "VOO",
+            "name": "Vanguard S&P 500 ETF",
+            "category": "ETFs",
+            "price_mxn": 9850.0,
+            "change_24h": "+0.85%",
+            "trend": "up",
+            "volume_24h": "$8.1B MXN",
+            "market_cap": "$1.1T USD",
+            "high_24h": 9890.0,
+            "low_24h": 9780.0,
+            "ai_score": "Acumular (94%)",
+            "history": [
+                {"time": "00:00", "price": 9780},
+                {"time": "04:00", "price": 9800},
+                {"time": "08:00", "price": 9820},
+                {"time": "12:00", "price": 9870},
+                {"time": "16:00", "price": 9840},
+                {"time": "20:00", "price": 9850},
+            ],
+        },
+    ]
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
+            resp = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price?ids=solana,stellar&vs_currencies=mxn&include_24hr_change=true"
+            )
+            if resp.status_code == 200:
+                cg_data = resp.json()
+                for opp in opportunities:
+                    if opp["id"] in cg_data:
+                        price = float(cg_data[opp["id"]].get("mxn", opp["price_mxn"]))
+                        chg = float(cg_data[opp["id"]].get("mxn_24h_change", 0.0))
+                        opp["price_mxn"] = price
+                        opp["change_24h"] = f"{'+' if chg >= 0 else ''}{chg:.2f}%"
+                        opp["trend"] = "up" if chg >= 0 else "down"
+    except Exception as e:
+        print(f"Aviso: usando valores de respaldo de oportunidades: {e}")
+
+    return opportunities

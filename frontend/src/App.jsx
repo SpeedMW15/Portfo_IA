@@ -1,11 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchPortfolioAssets, fetchAIInsights, fetchStellarAccount } from './services/api';
+import {
+  fetchPortfolioAssets,
+  fetchAIInsights,
+  fetchStellarAccount,
+  fetchMarketOpportunities
+} from './services/api';
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
-  Tooltip
+  Tooltip,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis
 } from 'recharts';
 
 const LIGHT_COLORS = ['#B58A42', '#059669', '#64748B', '#2563EB'];
@@ -13,16 +22,12 @@ const DARK_COLORS = ['#D6B36A', '#10B981', '#64748B', '#60A5FA'];
 
 const DISPLAY_FONT = "'Fraunces', 'Iowan Old Style', 'Georgia', serif";
 
-const REFRESH_INTERVAL_MS = 45000; // ritmo amable con APIs públicas gratuitas
+const REFRESH_INTERVAL_MS = 45000;
 
-// Smoothly counts a numeric value up from 0 whenever the target changes.
-// Uses an ease-out curve so the motion decelerates like a settling ticker.
 function useCountUp(target, duration = 1400) {
   const [value, setValue] = useState(0);
-  const targetRef = useRef(target);
 
   useEffect(() => {
-    targetRef.current = target;
     if (typeof target !== 'number' || Number.isNaN(target)) return undefined;
 
     const prefersReducedMotion =
@@ -87,25 +92,19 @@ export default function PortfolioDashboard() {
   const [assets, setAssets] = useState([]);
   const [insights, setInsights] = useState(null);
   const [stellar, setStellar] = useState(null);
+  const [opportunities, setOpportunities] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [selectedAsset, setSelectedAsset] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const [insightsLoading, setInsightsLoading] = useState(false);
 
-  // ============================================================
   // THEME
-  // ============================================================
-
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem('portfolio-theme');
-
-    if (savedTheme === 'light' || savedTheme === 'dark') {
-      return savedTheme;
-    }
-
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
+    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   const isDark = theme === 'dark';
@@ -119,10 +118,7 @@ export default function PortfolioDashboard() {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
   };
 
-  // ============================================================
-  // FONTS (Fraunces for display numerals, kept scoped to this view)
-  // ============================================================
-
+  // FONTS
   useEffect(() => {
     if (document.getElementById('portfolio-font-link')) return;
     const link = document.createElement('link');
@@ -133,32 +129,31 @@ export default function PortfolioDashboard() {
     document.head.appendChild(link);
   }, []);
 
-  // ============================================================
-  // DATA
-  // Carga activos y cuenta de Stellar de manera automática.
-  // La IA ahora se ejecuta bajo demanda con el botón para ahorrar tokens.
-  // ============================================================
-
+  // DATA LOADING
   const loadData = useCallback(async (isInitial) => {
     try {
       if (isInitial) setLoading(true);
 
-      const [liveAssets, liveStellar] = await Promise.all([
+      const [liveAssets, liveStellar, liveOpps] = await Promise.all([
         fetchPortfolioAssets(),
-        fetchStellarAccount()
+        fetchStellarAccount(),
+        fetchMarketOpportunities()
       ]);
 
       setAssets(liveAssets);
       setStellar(liveStellar);
+      setOpportunities(liveOpps);
+      if (liveOpps.length > 0 && !selectedAsset) {
+        setSelectedAsset(liveOpps[0]);
+      }
       setLastUpdated(Date.now());
     } catch (error) {
       console.error('Error al cargar el portafolio:', error);
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, []);
+  }, [selectedAsset]);
 
-  // Función para solicitar análisis de Groq únicamente cuando se presiona el botón
   const handleAnalyzeWithAI = async () => {
     if (insightsLoading) return;
     setInsightsLoading(true);
@@ -166,7 +161,7 @@ export default function PortfolioDashboard() {
       const liveInsights = await fetchAIInsights();
       setInsights(liveInsights);
     } catch (error) {
-      console.error('Error al consultar el servicio de IA:', error);
+      console.error('Error al consultar la IA:', error);
     } finally {
       setInsightsLoading(false);
     }
@@ -178,16 +173,12 @@ export default function PortfolioDashboard() {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // Ticks every second so "hace Xs" stays accurate without re-fetching.
   useEffect(() => {
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(clock);
   }, []);
 
-  // ============================================================
-  // CALCULATIONS (kept above the loading branch so hook order stays stable)
-  // ============================================================
-
+  // CALCULATIONS
   const totalPortfolioValue = useMemo(
     () => assets.reduce((acc, item) => acc + item.value, 0),
     [assets]
@@ -204,6 +195,11 @@ export default function PortfolioDashboard() {
     return map;
   }, [insights]);
 
+  const filteredOpportunities = useMemo(() => {
+    if (selectedCategory === 'Todos') return opportunities;
+    return opportunities.filter((opp) => opp.category === selectedCategory);
+  }, [opportunities, selectedCategory]);
+
   const secondsSinceUpdate = lastUpdated ? Math.max(0, Math.round((now - lastUpdated) / 1000)) : null;
   const updatedLabel =
     secondsSinceUpdate === null
@@ -214,10 +210,7 @@ export default function PortfolioDashboard() {
           ? `hace ${secondsSinceUpdate}s`
           : `hace ${Math.round(secondsSinceUpdate / 60)} min`;
 
-  // ============================================================
   // THEME CLASSES
-  // ============================================================
-
   const pageBg = isDark ? 'bg-[#080A0C]' : 'bg-[#F5F4F0]';
   const primaryText = isDark ? 'text-white' : 'text-[#17191A]';
   const secondaryText = isDark ? 'text-white/50' : 'text-slate-500';
@@ -253,33 +246,17 @@ export default function PortfolioDashboard() {
       animation: driftGlow 18s ease-in-out infinite;
       animation-delay: -4s;
     }
-    @media (prefers-reduced-motion: reduce) {
-      .reveal { opacity: 1; animation: none; }
-      .shimmer-line, .drift, .drift-slow { animation: none; }
-    }
   `;
-
-  // ============================================================
-  // LOADING
-  // ============================================================
 
   if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-500 ${isDark ? 'bg-[#080A0C] text-white' : 'bg-[#F6F5F1] text-slate-900'}`}>
         <style>{motionStyles}</style>
 
-        <div className="absolute inset-0 pointer-events-none">
-          <div className={`drift absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-[140px] ${isDark ? 'bg-emerald-500/[0.05]' : 'bg-emerald-500/[0.07]'}`} />
-          <div className={`drift-slow absolute top-1/3 left-1/3 w-[250px] h-[250px] rounded-full blur-[100px] ${isDark ? 'bg-amber-400/[0.035]' : 'bg-amber-400/[0.08]'}`} />
-        </div>
-
         <div className="relative z-10 flex flex-col items-center">
           <div className="relative mb-8">
             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-xl transition-colors duration-500 ${isDark ? 'border border-white/10 bg-white/[0.035] shadow-2xl' : 'border border-slate-200 bg-white shadow-[0_20px_60px_rgba(0,0,0,.08)]'}`}>
-              <span
-                className="text-transparent bg-clip-text bg-gradient-to-br from-[#F2D18A] via-[#D6B36A] to-[#8A6A32] text-2xl font-black"
-                style={{ fontFamily: DISPLAY_FONT }}
-              >
+              <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#F2D18A] via-[#D6B36A] to-[#8A6A32] text-2xl font-black" style={{ fontFamily: DISPLAY_FONT }}>
                 Π
               </span>
             </div>
@@ -312,24 +289,6 @@ export default function PortfolioDashboard() {
         <div className={`drift absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full blur-[150px] ${isDark ? 'bg-emerald-500/[0.035]' : 'bg-emerald-500/[0.035]'}`} />
         <div className={`drift-slow absolute top-[35%] -right-60 w-[650px] h-[650px] rounded-full blur-[160px] ${isDark ? 'bg-amber-400/[0.025]' : 'bg-amber-400/[0.045]'}`} />
         <div className={`absolute bottom-[-300px] left-[25%] w-[600px] h-[600px] rounded-full blur-[160px] ${isDark ? 'bg-blue-500/[0.025]' : 'bg-blue-500/[0.02]'}`} />
-
-        <div
-          className={`absolute inset-0 ${isDark ? 'opacity-[0.025]' : 'opacity-[0.035]'}`}
-          style={{
-            backgroundImage: isDark
-              ? `linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)`
-              : `linear-gradient(rgba(0,0,0,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.18) 1px, transparent 1px)`,
-            backgroundSize: '60px 60px'
-          }}
-        />
-
-        <div
-          className={isDark ? 'opacity-[0.05] mix-blend-overlay absolute inset-0' : 'opacity-[0.04] mix-blend-multiply absolute inset-0'}
-          style={{
-            backgroundImage:
-              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"
-          }}
-        />
       </div>
 
       {/* CONTAINER */}
@@ -352,10 +311,7 @@ export default function PortfolioDashboard() {
             </div>
 
             <div>
-              <h1
-                className={`text-xl sm:text-2xl font-semibold tracking-[0.12em] ${primaryText}`}
-                style={{ fontFamily: DISPLAY_FONT }}
-              >
+              <h1 className={`text-xl sm:text-2xl font-semibold tracking-[0.12em] ${primaryText}`} style={{ fontFamily: DISPLAY_FONT }}>
                 PORTFO
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F1D28C] to-[#B58A42]">
                   .IA
@@ -373,9 +329,7 @@ export default function PortfolioDashboard() {
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               </span>
-              <span className={`text-[9px] uppercase tracking-[0.18em] ${secondaryText}`}>
-                Conexión segura
-              </span>
+              <span className={`text-[9px] uppercase tracking-[0.18em] ${secondaryText}`}>Conexión segura</span>
             </div>
 
             <div className={`hidden sm:flex items-center gap-2 px-3.5 py-2.5 rounded-xl border ${isDark ? 'bg-white/[0.025] border-white/[0.07]' : 'bg-white border-slate-200'}`}>
@@ -403,10 +357,7 @@ export default function PortfolioDashboard() {
                 <div className="flex items-center gap-3">
                   <div>
                     <p className={`text-[8px] uppercase tracking-[0.2em] ${mutedText}`}>Salud del portafolio</p>
-                    <p
-                      className="text-lg font-semibold text-transparent bg-clip-text bg-gradient-to-r from-[#F0D28D] to-[#B38A44] leading-none mt-1"
-                      style={{ fontFamily: DISPLAY_FONT }}
-                    >
+                    <p className="text-lg font-semibold text-transparent bg-clip-text bg-gradient-to-r from-[#F0D28D] to-[#B38A44] leading-none mt-1" style={{ fontFamily: DISPLAY_FONT }}>
                       {insights.health_score}
                       <span className={`text-[9px] font-normal ${mutedText}`}>/100</span>
                     </p>
@@ -424,23 +375,15 @@ export default function PortfolioDashboard() {
         <section className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-5 mt-7">
 
           {/* TOTAL VALUE */}
-          <div
-            className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} transition-shadow duration-500 hover:shadow-[0_35px_120px_rgba(214,179,106,.1)] ${isDark ? 'bg-gradient-to-br from-[#101416] via-[#0D1012] to-[#090B0D] shadow-[0_30px_100px_rgba(0,0,0,.35)]' : 'bg-gradient-to-br from-white via-white to-[#F8F6EF] shadow-[0_25px_70px_rgba(30,30,20,.08)]'}`}
-            style={{ animationDelay: '80ms' }}
-          >
-            <div
-              className="shimmer-line absolute top-0 left-0 right-0 h-px"
-              style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(214,179,106,.7), transparent)' }}
-            />
+          <div className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} transition-shadow duration-500 hover:shadow-[0_35px_120px_rgba(214,179,106,.1)] ${isDark ? 'bg-gradient-to-br from-[#101416] via-[#0D1012] to-[#090B0D] shadow-[0_30px_100px_rgba(0,0,0,.35)]' : 'bg-gradient-to-br from-white via-white to-[#F8F6EF] shadow-[0_25px_70px_rgba(30,30,20,.08)]'}`}>
+            <div className="shimmer-line absolute top-0 left-0 right-0 h-px" style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(214,179,106,.7), transparent)' }} />
 
             <div className="relative p-7 sm:p-9 lg:p-10">
               <div className="flex flex-wrap justify-between items-start gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#D6B36A] shadow-[0_0_8px_rgba(214,179,106,.8)]" />
-                    <span className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>
-                      Valor Neto Consolidado (NAV)
-                    </span>
+                    <span className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>Valor Neto Consolidado (NAV)</span>
                   </div>
                   <p className={`text-[10px] uppercase tracking-[0.16em] ${mutedText}`}>Todas tus plataformas, un solo lugar</p>
                 </div>
@@ -451,11 +394,8 @@ export default function PortfolioDashboard() {
               </div>
 
               <div className="mt-6 flex flex-wrap items-end gap-4">
-                <h2
-                  className={`text-4xl sm:text-5xl lg:text-6xl font-medium tracking-[-0.03em] tabular-nums ${primaryText}`}
-                  style={{ fontFamily: DISPLAY_FONT }}
-                >
-                  ${animatedTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <h2 className={`text-4xl sm:text-5xl lg:text-6xl font-medium tracking-[-0.03em] tabular-nums ${primaryText}`} style={{ fontFamily: DISPLAY_FONT }}>
+                  ${animatedTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                 </h2>
 
                 <div className={`mb-1 px-3 py-1.5 rounded-lg border ${isDark ? 'bg-emerald-400/[0.06] border-emerald-400/10' : 'bg-emerald-500/[0.06] border-emerald-500/10'}`}>
@@ -494,9 +434,7 @@ export default function PortfolioDashboard() {
                         <span className="text-[#D6B36A] text-xs">✦</span>
                         <span className="text-[9px] font-medium uppercase tracking-[0.22em] text-[#B58A42]">Reporte de inteligencia</span>
                       </div>
-                      <p className={`text-xs sm:text-sm leading-6 ${secondaryText}`}>
-                        {insights.recommendation}
-                      </p>
+                      <p className={`text-xs sm:text-sm leading-6 ${secondaryText}`}>{insights.recommendation}</p>
                       {insights.diversification_tip && (
                         <p className={`text-xs sm:text-sm leading-6 mt-2 pt-2 border-t ${isDark ? 'border-white/[0.06] text-white/70' : 'border-slate-200 text-slate-600'}`}>
                           <span className="text-emerald-500 font-medium">Sugerencia →</span> {insights.diversification_tip}
@@ -510,14 +448,8 @@ export default function PortfolioDashboard() {
           </div>
 
           {/* ALLOCATION */}
-          <div
-            className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-[0_30px_100px_rgba(0,0,0,.12)]`}
-            style={{ animationDelay: '160ms' }}
-          >
-            <div
-              className="shimmer-line absolute top-0 left-0 right-0 h-px"
-              style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(214,179,106,.4), transparent)' }}
-            />
+          <div className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-[0_30px_100px_rgba(0,0,0,.12)]`}>
+            <div className="shimmer-line absolute top-0 left-0 right-0 h-px" style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(214,179,106,.4), transparent)' }} />
 
             <div className="p-7 sm:p-8 h-full flex flex-col">
               <div className="flex justify-between items-center">
@@ -531,19 +463,7 @@ export default function PortfolioDashboard() {
               <div className="relative h-[240px] mt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={assets}
-                      dataKey="value"
-                      nameKey="symbol"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={68}
-                      outerRadius={91}
-                      paddingAngle={4}
-                      stroke="none"
-                      animationDuration={900}
-                      animationEasing="ease-out"
-                    >
+                    <Pie data={assets} dataKey="value" nameKey="symbol" cx="50%" cy="50%" innerRadius={68} outerRadius={91} paddingAngle={4} stroke="none">
                       {assets.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
@@ -554,11 +474,9 @@ export default function PortfolioDashboard() {
                         border: isDark ? '1px solid rgba(255,255,255,.08)' : '1px solid #E2E8F0',
                         borderRadius: '14px',
                         color: isDark ? '#fff' : '#17191A',
-                        boxShadow: isDark ? '0 20px 60px rgba(0,0,0,.4)' : '0 20px 50px rgba(0,0,0,.12)',
                         padding: '12px 14px'
                       }}
-                      itemStyle={{ color: isDark ? '#fff' : '#17191A', fontSize: '12px' }}
-                      formatter={(value) => [`$${Number(value).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, 'Valor']}
+                      formatter={(value) => [`$${Number(value).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`, 'Valor']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -576,10 +494,7 @@ export default function PortfolioDashboard() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-auto">
                 {assets.map((item, idx) => (
-                  <div
-                    key={item.symbol}
-                    className={`group rounded-xl border px-3 py-3 transition-all duration-300 hover:-translate-y-0.5 ${isDark ? 'border-white/[0.06] bg-white/[0.018] hover:bg-white/[0.04] hover:border-white/[0.1]' : 'border-slate-200 bg-[#FAFAF8] hover:bg-white hover:border-slate-300 shadow-sm'}`}
-                  >
+                  <div key={item.symbol} className={`group rounded-xl border px-3 py-3 transition-all duration-300 ${isDark ? 'border-white/[0.06] bg-white/[0.018]' : 'border-slate-200 bg-[#FAFAF8]'}`}>
                     <div className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
                       <span className={`text-[9px] uppercase tracking-[0.15em] ${mutedText}`}>{item.symbol}</span>
@@ -597,142 +512,239 @@ export default function PortfolioDashboard() {
         {/* AI ADVISOR + STELLAR NETWORK */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
 
-          {/* AI ADVISOR — per-asset buy/sell/hold signals con botón bajo demanda */}
-          <div
-            className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-[0_30px_100px_rgba(0,0,0,.12)]`}
-            style={{ animationDelay: '200ms' }}
-          >
-            <div
-              className="shimmer-line absolute top-0 left-0 right-0 h-px"
-              style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(52,211,153,.4), transparent)' }}
-            />
-            <div className="p-7 sm:p-8">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-                <div>
-                  <p className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>Asesor de IA</p>
-                  <p className={`text-xs mt-1 ${secondaryText}`}>Señales de compra / venta por activo</p>
-                </div>
-
-                {/* Botón con la misma estética del header/badges para solicitar análisis bajo demanda */}
-                <button
-                  type="button"
-                  onClick={handleAnalyzeWithAI}
-                  disabled={insightsLoading}
-                  className={`relative inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-[10px] font-medium uppercase tracking-[0.15em] transition-all duration-300 ${
-                    insightsLoading
-                      ? 'opacity-60 cursor-not-allowed border-[#D6B36A]/20 bg-[#D6B36A]/[0.05] text-[#D6B36A]'
-                      : isDark
-                        ? 'border-[#D6B36A]/30 bg-[#D6B36A]/[0.08] text-[#E3C47F] hover:bg-[#D6B36A]/[0.15] hover:border-[#D6B36A]/50 shadow-[0_4px_20px_rgba(214,179,106,.1)]'
-                        : 'border-[#B58A42]/30 bg-[#B58A42]/[0.08] text-[#8A6A32] hover:bg-[#B58A42]/[0.15] hover:border-[#B58A42]/50 shadow-sm'
-                  }`}
-                >
-                  <span className={`text-xs ${insightsLoading ? 'animate-spin' : ''}`}>✦</span>
-                  <span>{insightsLoading ? 'Analizando...' : 'Analizar con IA'}</span>
-                </button>
+          {/* AI ADVISOR */}
+          <div className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-lg p-7 sm:p-8`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+              <div>
+                <p className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>Asesor de IA</p>
+                <p className={`text-xs mt-1 ${secondaryText}`}>Señales de compra / venta por activo</p>
               </div>
 
-              {!insights && !insightsLoading && (
-                <div className={`rounded-xl border border-dashed px-5 py-6 text-center ${isDark ? 'border-white/[0.1]' : 'border-slate-300'}`}>
-                  <p className={`text-xs leading-6 ${secondaryText}`}>
-                    Haz clic en <strong>"Analizar con IA"</strong> para generar las señales cuantitativas de tu portafolio.
-                  </p>
-                </div>
-              )}
-
-              {insights && (
-                <div className="space-y-2">
-                  {assets.map((item) => {
-                    const action = actionsBySymbol[item.symbol];
-                    return (
-                      <div
-                        key={item.symbol}
-                        className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors duration-300 ${isDark ? 'border-white/[0.06] bg-white/[0.018] hover:border-white/[0.1]' : 'border-slate-200 bg-[#FAFAF8] hover:border-slate-300'}`}
-                      >
-                        <div className="min-w-0">
-                          <p className={`text-xs font-medium ${primaryText}`}>{item.symbol}</p>
-                          <p className={`text-[10px] mt-0.5 truncate ${mutedText}`}>{action?.reason || 'Sin señal disponible'}</p>
-                        </div>
-                        <AiActionBadge action={action} isDark={isDark} />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={handleAnalyzeWithAI}
+                disabled={insightsLoading}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-[10px] font-medium uppercase tracking-[0.15em] transition-all duration-300 ${
+                  insightsLoading
+                    ? 'opacity-60 border-[#D6B36A]/20 bg-[#D6B36A]/[0.05] text-[#D6B36A]'
+                    : isDark
+                      ? 'border-[#D6B36A]/30 bg-[#D6B36A]/[0.08] text-[#E3C47F] hover:bg-[#D6B36A]/[0.15]'
+                      : 'border-[#B58A42]/30 bg-[#B58A42]/[0.08] text-[#8A6A32] hover:bg-[#B58A42]/[0.15]'
+                }`}
+              >
+                <span className={`text-xs ${insightsLoading ? 'animate-spin' : ''}`}>✦</span>
+                <span>{insightsLoading ? 'Analizando...' : 'Analizar con IA'}</span>
+              </button>
             </div>
+
+            {!insights && !insightsLoading && (
+              <div className={`rounded-xl border border-dashed px-5 py-6 text-center ${isDark ? 'border-white/[0.1]' : 'border-slate-300'}`}>
+                <p className={`text-xs leading-6 ${secondaryText}`}>
+                  Haz clic en <strong>"Analizar con IA"</strong> para generar las señales cuantitativas.
+                </p>
+              </div>
+            )}
+
+            {insights && (
+              <div className="space-y-2">
+                {assets.map((item) => {
+                  const action = actionsBySymbol[item.symbol];
+                  return (
+                    <div key={item.symbol} className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${isDark ? 'border-white/[0.06] bg-white/[0.018]' : 'border-slate-200 bg-[#FAFAF8]'}`}>
+                      <div className="min-w-0">
+                        <p className={`text-xs font-medium ${primaryText}`}>{item.symbol}</p>
+                        <p className={`text-[10px] mt-0.5 truncate ${mutedText}`}>{action?.reason || 'Sin señal disponible'}</p>
+                      </div>
+                      <AiActionBadge action={action} isDark={isDark} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* STELLAR NETWORK */}
-          <div
-            className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-[0_30px_100px_rgba(0,0,0,.12)]`}
-            style={{ animationDelay: '260ms' }}
-          >
-            <div
-              className="shimmer-line absolute top-0 left-0 right-0 h-px"
-              style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(96,165,250,.4), transparent)' }}
-            />
-            <div className="p-7 sm:p-8">
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <p className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>Red Stellar</p>
-                  <p className={`text-xs mt-1 ${secondaryText}`}>Tu billetera on-chain</p>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full border text-[8px] uppercase tracking-[0.15em] ${isDark ? 'border-blue-400/20 text-blue-300 bg-blue-400/[0.05]' : 'border-blue-500/20 text-blue-600 bg-blue-500/[0.05]'}`}>
-                  {stellar?.network === 'mainnet' ? 'Mainnet' : 'Testnet'}
-                </span>
+          <div className={`reveal relative overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-lg p-7 sm:p-8`}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className={`text-[9px] uppercase tracking-[0.28em] ${mutedText}`}>Red Stellar</p>
+                <p className={`text-xs mt-1 ${secondaryText}`}>Tu billetera on-chain</p>
               </div>
+              <span className={`px-2.5 py-1 rounded-full border text-[8px] uppercase tracking-[0.15em] ${isDark ? 'border-blue-400/20 text-blue-300 bg-blue-400/[0.05]' : 'border-blue-500/20 text-blue-600 bg-blue-500/[0.05]'}`}>
+                {stellar?.network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+              </span>
+            </div>
 
-              {stellar?.configured ? (
-                <div className="space-y-4">
-                  <div className="flex items-baseline gap-2">
-                    <span className={`text-3xl font-medium tracking-[-0.02em] tabular-nums ${primaryText}`} style={{ fontFamily: DISPLAY_FONT }}>
-                      {Number(stellar.xlm_balance).toLocaleString('es-MX', { maximumFractionDigits: 4 })}
-                    </span>
-                    <span className={`text-xs uppercase tracking-wider ${mutedText}`}>XLM nativo</span>
+            {stellar?.configured ? (
+              <div className="space-y-4">
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-3xl font-medium tracking-[-0.02em] tabular-nums ${primaryText}`} style={{ fontFamily: DISPLAY_FONT }}>
+                    {Number(stellar.xlm_balance).toLocaleString('es-MX', { maximumFractionDigits: 4 })}
+                  </span>
+                  <span className={`text-xs uppercase tracking-wider ${mutedText}`}>XLM nativo</span>
+                </div>
+
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[10px] font-mono ${isDark ? 'border-white/[0.07] bg-white/[0.02] text-white/50' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                  <span className="truncate">{stellar.public_key}</span>
+                </div>
+
+                {stellar.other_assets?.length > 0 && (
+                  <div>
+                    <p className={`text-[9px] uppercase tracking-[0.18em] mb-2 ${mutedText}`}>Otros trustlines</p>
+                    <div className="flex flex-wrap gap-2">
+                      {stellar.other_assets.map((a) => (
+                        <span key={a.asset_code} className={`px-2.5 py-1 rounded-lg border text-[10px] font-mono ${isDark ? 'border-white/[0.07] bg-white/[0.02] text-white/60' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                          {a.asset_code}: {Number(a.balance).toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                )}
+              </div>
+            ) : (
+              <div className={`rounded-xl border border-dashed px-5 py-6 text-center ${isDark ? 'border-white/[0.1]' : 'border-slate-300'}`}>
+                <p className={`text-xs leading-6 ${secondaryText}`}>
+                  {stellar?.message || 'Configura tu cuenta de Stellar para verla aquí.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
 
-                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[10px] font-mono ${isDark ? 'border-white/[0.07] bg-white/[0.02] text-white/50' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                    <span className="truncate">
-                      {stellar.public_key.slice(0, 6)}…{stellar.public_key.slice(-6)}
-                    </span>
-                  </div>
+        {/* SECCIÓN: OPORTUNIDADES DE INVERSIÓN Y GRÁFICAS EN TIEMPO REAL */}
+        <section className={`reveal relative mt-8 overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} p-7 sm:p-9 shadow-xl`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[#D6B36A] text-xs">✦</span>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.25em] text-[#B58A42]">Explorador de Mercado</span>
+              </div>
+              <h3 className={`text-lg font-semibold ${primaryText}`} style={{ fontFamily: DISPLAY_FONT }}>
+                Oportunidades de Inversión Destacadas
+              </h3>
+            </div>
 
-                  {stellar.other_assets?.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {['Todos', 'Cripto / L1', 'DeFi / Soroban', 'Acciones / Tech', 'ETFs'].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1.5 rounded-xl border text-[10px] uppercase tracking-wider transition-all duration-300 ${
+                    selectedCategory === cat
+                      ? 'border-[#D6B36A] bg-[#D6B36A]/10 text-[#D6B36A] font-semibold'
+                      : 'border-slate-200/40 text-slate-400 hover:border-[#D6B36A]/30'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* LISTADO DE ACTIVOS */}
+            <div className="space-y-3 lg:col-span-1">
+              {filteredOpportunities.map((opp) => (
+                <div
+                  key={opp.id}
+                  onClick={() => setSelectedAsset(opp)}
+                  className={`cursor-pointer p-4 rounded-2xl border transition-all duration-300 ${
+                    selectedAsset?.id === opp.id
+                      ? isDark
+                        ? 'border-[#D6B36A] bg-white/[0.04]'
+                        : 'border-[#B58A42] bg-[#FAF9F5]'
+                      : isDark
+                        ? 'border-white/[0.06] bg-white/[0.015] hover:border-white/[0.15]'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-2">
                     <div>
-                      <p className={`text-[9px] uppercase tracking-[0.18em] mb-2 ${mutedText}`}>Otros trustlines</p>
-                      <div className="flex flex-wrap gap-2">
-                        {stellar.other_assets.map((a) => (
-                          <span
-                            key={a.asset_code}
-                            className={`px-2.5 py-1 rounded-lg border text-[10px] font-mono ${isDark ? 'border-white/[0.07] bg-white/[0.02] text-white/60' : 'border-slate-200 bg-slate-50 text-slate-600'}`}
-                          >
-                            {a.asset_code}: {Number(a.balance).toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </span>
-                        ))}
+                      <span className={`text-xs font-semibold ${primaryText}`}>{opp.symbol}</span>
+                      <p className={`text-[10px] ${mutedText}`}>{opp.name}</p>
+                    </div>
+                    <span className={`text-xs font-mono font-medium ${opp.trend === 'up' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {opp.change_24h}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-end mt-3">
+                    <div>
+                      <p className={`text-[9px] uppercase ${mutedText}`}>Precio Actual</p>
+                      <p className={`text-sm font-mono font-medium ${primaryText}`}>
+                        ${opp.price_mxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[8px] uppercase tracking-wider bg-[#D6B36A]/10 text-[#D6B36A] border border-[#D6B36A]/20">
+                      {opp.ai_score}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* GRÁFICA INTERACTIVA EN TIEMPO REAL */}
+            <div className={`lg:col-span-2 rounded-2xl border p-6 flex flex-col justify-between ${isDark ? 'border-white/[0.06] bg-white/[0.015]' : 'border-slate-200 bg-[#FAF9F5]'}`}>
+              {selectedAsset ? (
+                <>
+                  <div className="flex flex-wrap justify-between items-start gap-4 mb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base font-semibold ${primaryText}`}>{selectedAsset.name}</span>
+                        <span className={`text-xs font-mono ${mutedText}`}>({selectedAsset.symbol})</span>
+                      </div>
+                      <p className={`text-[10px] uppercase tracking-wider ${mutedText} mt-0.5`}>{selectedAsset.category}</p>
+                    </div>
+
+                    <div className="flex gap-4">
+                      <div>
+                        <p className={`text-[8px] uppercase tracking-wider ${mutedText}`}>Volumen 24h</p>
+                        <p className={`text-xs font-mono font-medium ${primaryText}`}>{selectedAsset.volume_24h}</p>
+                      </div>
+                      <div>
+                        <p className={`text-[8px] uppercase tracking-wider ${mutedText}`}>Máx / Mín 24h</p>
+                        <p className={`text-xs font-mono font-medium ${primaryText}`}>${selectedAsset.high_24h} / ${selectedAsset.low_24h}</p>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+
+                  <div className="h-[220px] w-full mt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={selectedAsset.history}>
+                        <defs>
+                          <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D6B36A" stopOpacity={0.4} />
+                            <stop offset="95%" stopColor="#D6B36A" stopOpacity={0.0} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="time" stroke={isDark ? '#ffffff40' : '#00000040'} fontSize={10} tickLine={false} />
+                        <YAxis stroke={isDark ? '#ffffff40' : '#00000040'} fontSize={10} tickLine={false} axisLine={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: isDark ? '#101416' : '#FFFFFF',
+                            border: '1px solid #D6B36A',
+                            borderRadius: '12px',
+                            fontSize: '11px'
+                          }}
+                          formatter={(val) => [`$${val} MXN`, 'Precio']}
+                        />
+                        <Area type="monotone" dataKey="price" stroke="#D6B36A" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
               ) : (
-                <div className={`rounded-xl border border-dashed px-5 py-6 text-center ${isDark ? 'border-white/[0.1]' : 'border-slate-300'}`}>
-                  <p className={`text-xs leading-6 ${secondaryText}`}>
-                    {stellar?.message || 'Configura tu cuenta de Stellar para verla aquí.'}
-                  </p>
+                <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                  Selecciona un activo de la lista para ver su gráfica en tiempo real.
                 </div>
               )}
             </div>
           </div>
         </section>
 
-        {/* HOLDINGS TABLE */}
-        <section
-          className={`reveal relative mt-5 overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} ${isDark ? 'shadow-[0_30px_100px_rgba(0,0,0,.3)]' : 'shadow-[0_25px_70px_rgba(30,30,20,.07)]'}`}
-          style={{ animationDelay: '320ms' }}
-        >
-          <div
-            className="shimmer-line absolute top-0 left-0 right-0 h-px"
-            style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(52,211,153,.35), transparent)' }}
-          />
-
+        {/* HOLDINGS TABLE COMPLETA */}
+        <section className={`reveal relative mt-5 overflow-hidden rounded-[28px] border ${subtleBorder} ${cardBg} shadow-lg`}>
           <div className={`px-6 sm:px-8 py-6 border-b ${subtleBorder} flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${isDark ? 'bg-transparent' : 'bg-[#FCFBF8]'}`}>
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -764,18 +776,14 @@ export default function PortfolioDashboard() {
               </thead>
               <tbody>
                 {assets.map((item, idx) => (
-                  <tr
-                    key={item.id}
-                    className={`reveal group border-b last:border-b-0 transition-all duration-300 ${isDark ? 'border-white/[0.045] hover:bg-white/[0.025]' : 'border-slate-100 hover:bg-[#FAF9F5]'}`}
-                    style={{ animationDelay: `${360 + idx * 55}ms` }}
-                  >
+                  <tr key={item.id} className={`border-b last:border-b-0 transition-all duration-300 ${isDark ? 'border-white/[0.045] hover:bg-white/[0.025]' : 'border-slate-100 hover:bg-[#FAF9F5]'}`}>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-4">
-                        <div className={`relative w-11 h-11 rounded-xl border flex items-center justify-center transition-all duration-300 ${isDark ? 'border-white/[0.08] bg-gradient-to-br from-white/[0.07] to-white/[0.015] group-hover:border-[#D6B36A]/25' : 'border-slate-200 bg-gradient-to-br from-[#FAF9F5] to-white group-hover:border-[#D6B36A]/40'}`}>
-                          <span className="text-[10px] font-semibold tracking-wider text-[#B58A42]">{item.symbol.slice(0, 3)}</span>
+                        <div className={`w-11 h-11 rounded-xl border flex items-center justify-center ${isDark ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-white'}`}>
+                          <span className="text-[10px] font-semibold text-[#B58A42]">{item.symbol.slice(0, 3)}</span>
                         </div>
                         <div>
-                          <span className={`block text-sm font-medium tracking-wide ${primaryText}`}>{item.symbol}</span>
+                          <span className={`block text-sm font-medium ${primaryText}`}>{item.symbol}</span>
                           <span className={`block text-[10px] mt-1 ${mutedText}`}>{item.name}</span>
                         </div>
                       </div>
@@ -801,12 +809,12 @@ export default function PortfolioDashboard() {
 
                     <td className="px-6 py-5">
                       <span className={`text-sm font-mono font-medium tabular-nums ${primaryText}`}>
-                        ${item.value.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        ${item.value.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
                       </span>
                     </td>
 
                     <td className="px-6 py-5">
-                      <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-mono font-medium tabular-nums ${item.trend === 'up' ? (isDark ? 'text-emerald-400 bg-emerald-400/[0.04] border-emerald-400/10' : 'text-emerald-600 bg-emerald-500/[0.05] border-emerald-500/10') : (isDark ? 'text-rose-400 bg-rose-400/[0.04] border-rose-400/10' : 'text-rose-600 bg-rose-500/[0.05] border-rose-500/10')}`}>
+                      <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-mono font-medium tabular-nums ${item.trend === 'up' ? 'text-emerald-500 bg-emerald-500/[0.05] border-emerald-500/10' : 'text-rose-500 bg-rose-500/[0.05] border-rose-500/10'}`}>
                         <span>{item.trend === 'up' ? '↗' : '↘'}</span>
                         {item.change}
                       </span>
@@ -816,10 +824,7 @@ export default function PortfolioDashboard() {
                       <div className="flex items-center gap-3">
                         <span className={`text-[10px] font-mono tabular-nums w-9 ${secondaryText}`}>{item.allocation}%</span>
                         <div className={`w-24 h-1 rounded-full overflow-hidden ${isDark ? 'bg-white/[0.06]' : 'bg-slate-200'}`}>
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#9D793B] via-[#D6B36A] to-[#E8CD91] transition-all duration-1000 ease-out"
-                            style={{ width: `${item.allocation}%` }}
-                          />
+                          <div className="h-full rounded-full bg-gradient-to-r from-[#9D793B] via-[#D6B36A] to-[#E8CD91]" style={{ width: `${item.allocation}%` }} />
                         </div>
                       </div>
                     </td>
@@ -832,15 +837,10 @@ export default function PortfolioDashboard() {
               </tbody>
             </table>
           </div>
-
-          <div className={`px-6 sm:px-8 py-4 border-t ${subtleBorder} flex flex-col sm:flex-row justify-between gap-2 ${isDark ? 'bg-white/[0.012]' : 'bg-[#FAF9F5]'}`}>
-            <span className={`text-[8px] uppercase tracking-[0.18em] ${mutedText}`}>Datos sincronizados automáticamente cada {Math.round(REFRESH_INTERVAL_MS / 1000)}s</span>
-            <span className={`text-[8px] uppercase tracking-[0.18em] ${mutedText}`}>Portafolio ID • MX-01</span>
-          </div>
         </section>
 
         {/* FOOTER */}
-        <footer className="reveal py-8 flex flex-col sm:flex-row justify-between items-center gap-3" style={{ animationDelay: '420ms' }}>
+        <footer className="reveal py-8 flex flex-col sm:flex-row justify-between items-center gap-3">
           <p className={`text-[8px] uppercase tracking-[0.22em] ${mutedText}`}>PORTFO.IA — Inteligencia de Patrimonio Privado</p>
           <p className={`text-[8px] uppercase tracking-[0.18em] ${mutedText}`}>Confidencial • Seguro • Institucional</p>
         </footer>

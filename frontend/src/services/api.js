@@ -11,7 +11,6 @@ export async function fetchPortfolioAssets() {
     throw new Error("Estructura de datos no válida");
   } catch (error) {
     console.warn("Usando datos Mock para Assets (en MXN):", error);
-    // Precios y cálculos actualizados en Pesos Mexicanos (MXN)
     return [
       {
         id: 1,
@@ -21,7 +20,7 @@ export async function fetchPortfolioAssets() {
         category: "CRYPTO",
         amount: "1,500.00",
         price: "$3.29 MXN",
-        value: 4935.00, // 1500 * 3.29
+        value: 4935.00,
         trend: "up",
         change: "+0.52%",
         allocation: 25
@@ -92,5 +91,107 @@ export async function fetchStellarAccount() {
       xlm_balance: 1500.00,
       other_assets: [{ asset_code: "USDC", balance: "250.00" }]
     };
+  }
+}
+
+export async function fetchMarketOpportunities() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/market-opportunities`);
+    if (!response.ok) throw new Error("Backend no disponible");
+    const json = await response.json();
+    if (json.status === "success") return json.data;
+    throw new Error("Estructura no válida");
+  } catch (error) {
+    console.warn("Usando datos Mock para Oportunidades de Mercado:", error);
+    return [
+      {
+        id: "solana",
+        symbol: "SOL",
+        name: "Solana",
+        category: "Cripto / L1",
+        price_mxn: 3250.0,
+        change_24h: "+6.4%",
+        trend: "up",
+        volume_24h: "$4.2B MXN",
+        market_cap: "$1.4T MXN",
+        high_24h: 3320.0,
+        low_24h: 3010.0,
+        ai_score: "Alcista (88%)",
+        history: [
+          { time: "00:00", price: 3020 },
+          { time: "04:00", price: 3080 },
+          { time: "08:00", price: 3150 },
+          { time: "12:00", price: 3210 },
+          { time: "16:00", price: 3190 },
+          { time: "20:00", price: 3250 }
+        ]
+      },
+      {
+        id: "stellar",
+        symbol: "XLM",
+        name: "Stellar Lumens",
+        category: "DeFi / Soroban",
+        price_mxn: 3.29,
+        change_24h: "+0.52%",
+        trend: "up",
+        volume_24h: "$180M MXN",
+        market_cap: "$98B MXN",
+        high_24h: 3.38,
+        low_24h: 3.22,
+        ai_score: "Fuerte Compra (92%)",
+        history: [
+          { time: "00:00", price: 3.24 },
+          { time: "04:00", price: 3.27 },
+          { time: "08:00", price: 3.31 },
+          { time: "12:00", price: 3.35 },
+          { time: "16:00", price: 3.28 },
+          { time: "20:00", price: 3.29 }
+        ]
+      },
+      {
+        id: "nvidia",
+        symbol: "NVDA",
+        name: "NVIDIA Corp.",
+        category: "Acciones / Tech",
+        price_mxn: 2480.0,
+        change_24h: "+3.15%",
+        trend: "up",
+        volume_24h: "$12.5B MXN",
+        market_cap: "$3.2T USD",
+        high_24h: 2510.0,
+        low_24h: 2410.0,
+        ai_score: "Alcista (85%)",
+        history: [
+          { time: "00:00", price: 2410 },
+          { time: "04:00", price: 2430 },
+          { time: "08:00", price: 2465 },
+          { time: "12:00", price: 2490 },
+          { time: "16:00", price: 2470 },
+          { time: "20:00", price: 2480 }
+        ]
+      },
+      {
+        id: "voo",
+        symbol: "VOO",
+        name: "Vanguard S&P 500 ETF",
+        category: "ETFs",
+        price_mxn: 9850.0,
+        change_24h: "+0.85%",
+        trend: "up",
+        volume_24h: "$8.1B MXN",
+        market_cap: "$1.1T USD",
+        high_24h: 9890.0,
+        low_24h: 9780.0,
+        ai_score: "Acumular (94%)",
+        history: [
+          { time: "00:00", price: 9780 },
+          { time: "04:00", price: 9800 },
+          { time: "08:00", price: 9820 },
+          { time: "12:00", price: 9870 },
+          { time: "16:00", price: 9840 },
+          { time: "20:00", price: 9850 }
+        ]
+      }
+    ];
   }
 }

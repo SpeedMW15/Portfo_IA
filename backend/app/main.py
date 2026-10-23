@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .services.exchange_service import fetch_live_prices, fetch_stellar_account
+from .services.exchange_service import (
+    fetch_live_prices,
+    fetch_stellar_account,
+    fetch_market_opportunities,
+)
 from .services.ai_service import generate_portfolio_insight
 
 app = FastAPI(title="PortfoIA Quant API", version="1.1")
@@ -29,3 +33,8 @@ async def get_ai_insights():
 async def get_stellar_account():
     account = await fetch_stellar_account()
     return {"status": "success", "data": account}
+
+@app.get("/api/market-opportunities")
+async def get_market_opportunities():
+    opportunities = await fetch_market_opportunities()
+    return {"status": "success", "data": opportunities}
